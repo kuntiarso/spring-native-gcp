@@ -1,0 +1,22 @@
+@baseurl = http://localhost:8080
+
+# @name Show coffee beans
+# @no-log
+GET {{baseurl}}/api/v1/beans
+
+###
+
+# @name Add coffee bean
+# @no-log
+POST {{baseurl}}/api/v1/beans
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Kintamani",
+  "origin": "Bali",
+  "variety": "arabica",
+  "acidity": "medium"
+}
+
+###

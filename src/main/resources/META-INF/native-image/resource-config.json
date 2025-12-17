@@ -1,0 +1,27 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "application.*\\.yaml$"
+      },
+      {
+        "pattern": ".*-hsqldb\\.sql$"
+      },
+      {
+        "pattern": ".*\\.txt$"
+      },
+      {
+        "pattern": "org/hsqldb/.*\\.sql$"
+      },
+      {
+        "pattern": "org/hsqldb/.*\\.properties$"
+      },
+      {
+        "pattern": "org/hsqldb/resources/.*"
+      },
+      {
+        "pattern": "org/hsqldb/dbinfo/.*"
+      }
+    ]
+  }
+}

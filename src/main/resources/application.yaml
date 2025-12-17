@@ -1,0 +1,14 @@
+# spring properties
+spring:
+  application:
+    name: native-workshop
+  sql:
+    init:
+      mode: always
+      platform: hsqldb
+# logging properties
+logging:
+  level:
+    root: info
+    org.springframework.jdbc: debug
+    com.mandheling.roastery.nativews: debug
