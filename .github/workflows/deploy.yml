@@ -1,4 +1,4 @@
-name: Deploy Native Image to GCP
+name: Deploy App
 on:
   workflow_dispatch:
     inputs:
@@ -105,7 +105,7 @@ jobs:
           chmod +x ./artifact/${{ env.APP_NAME }}
           gcloud compute ssh ${{ env.GCP_INSTANCE }} --zone=${{ env.GCP_ZONE }} --command="sudo mkdir -p ${{ env.APP_DIR }} && sudo chown \$(whoami):\$(whoami) ${{ env.APP_DIR }}"
           gcloud compute scp ./artifact/${{ env.APP_NAME }} ${{ env.GCP_INSTANCE }}:${{ env.APP_DIR }}/${{ env.APP_NAME }} --zone=${{ env.GCP_ZONE }}
-          gcloud compute scp ./scripts/${{ env.APP_START_SH }} ${{ env.GCP_INSTANCE }}:${{ env.APP_DIR }}/${{ env.APP_START_SH }} --zone=${{ env.GCP_ZONE }}
+          gcloud compute scp ./${{ env.APP_START_SH }} ${{ env.GCP_INSTANCE }}:${{ env.APP_DIR }}/${{ env.APP_START_SH }} --zone=${{ env.GCP_ZONE }}
           gcloud compute ssh ${{ env.GCP_INSTANCE }} --zone=${{ env.GCP_ZONE }} --command="chmod +x ${{ env.APP_DIR }}/${{ env.APP_START_SH }} && ${{ env.APP_DIR }}/${{ env.APP_START_SH }}"
       - name: Deployment summary
         if: steps.artifact-verify.outputs.exists == 'true'
