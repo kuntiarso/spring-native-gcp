@@ -1,0 +1,102 @@
+name: Build Native Image
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Commit SHA to build (leave empty for current branch HEAD)'
+        required: false
+        default: ''
+        type: string
+env:
+  APP_NAME: native-workshop
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set target commit
+        id: target-commit
+        run: |
+          if [ -z "${{ github.event.inputs.commit_sha }}" ]; then
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "Using current HEAD: ${{ github.sha }}"
+          else
+            echo "sha=${{ github.event.inputs.commit_sha }}" >> $GITHUB_OUTPUT
+            echo "Using specified commit: ${{ github.event.inputs.commit_sha }}"
+          fi
+      - name: Check artifact exists
+        id: artifact-check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const artifactName = `${{ env.APP_NAME }}-${{ steps.target-commit.outputs.sha }}`;
+            console.log(`Checking for existing artifact: ${artifactName}`);
+            const { data: { artifacts } } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: artifactName
+            });
+            const exists = artifacts.length > 0 && !artifacts[0].expired;
+            if (exists) {
+              console.log(`Artifact already exists (ID: ${artifacts[0].id})`);
+              console.log(`Created at: ${artifacts[0].created_at}`);
+              console.log(`Expires at: ${artifacts[0].expires_at}`);
+            } else {
+              console.log(`No existing artifact found, will build`);
+            }
+            core.setOutput('exists', exists);
+            core.setOutput('artifact_name', artifactName);
+      - name: Skip build summary
+        if: steps.artifact-check.outputs.exists == 'true'
+        run: |
+          echo "## Build Skipped! :fast_forward:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ steps.target-commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Reason:** Artifact already exists and is not expired" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact:** ${{ steps.check-artifact.outputs.artifact_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Use this SHA in deploy workflow: \`${{ steps.target-commit.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+      - name: Checkout code
+        if: steps.artifact-check.outputs.exists != 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target-commit.outputs.sha }}
+      - name: Verify commit exists
+        if: steps.artifact-check.outputs.exists != 'true'
+        run: |
+          echo "Checked out commit: $(git rev-parse HEAD)"
+          if [ "$(git rev-parse HEAD)" != "${{ steps.target-commit.outputs.sha }}" ]; then
+            echo "::error::Failed to checkout specified commit"
+            exit 1
+          fi
+      - name: Setup graalvm
+        if: steps.artifact-check.outputs.exists != 'true'
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache maven repositories
+        if: steps.artifact-check.outputs.exists != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+      - name: Build native image
+        if: steps.artifact-check.outputs.exists != 'true'
+        run: ./mvnw -B -ntp clean -Pnative native:compile -DskipTests -DskipITs
+      - name: Upload native image
+        if: steps.artifact-check.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ steps.target-commit.outputs.sha }}
+          path: target/${{ env.APP_NAME }}
+          retention-days: 7
+      - name: Build summary
+        if: steps.artifact-check.outputs.exists != 'true'
+        run: |
+          echo "## Build Complete! :white_check_mark:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ steps.target-commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact:** ${{ env.APP_NAME }}-${{ steps.target-commit.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Use this SHA in deploy workflow: \`${{ steps.target-commit.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
