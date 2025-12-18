@@ -15,6 +15,7 @@ on:
           - dev
           - prod
 permissions:
+  contents: read
   id-token: write
 env:
   APP_DIR: /app
