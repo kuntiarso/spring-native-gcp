@@ -1,0 +1,34 @@
+[Unit]
+Description={{ app_name }} application
+After=network.target
+Wants=network-online.target
+
+[Service]
+MemoryMax=512M
+LimitNOFILE=65535
+Type=simple
+User={{ app_user }}
+Group={{ app_group }}
+WorkingDirectory={{ app_dir }}
+ExecStart={{ app_dir }}/{{ app_name }}
+Restart=always
+RestartSec=10
+Environment="SERVER_PORT={{ app_port }}"
+Environment="SPRING_PROFILES_ACTIVE={{ app_env }}"
+Environment="LOGGING_LEVEL_ROOT={{ app_log_level }}"
+{% if app_java_opts is defined %}
+Environment="JAVA_OPTS={{ app_java_opts }}"
+{% endif %}
+TimeoutStartSec=60
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ app_name }}
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ app_dir }}
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

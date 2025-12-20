@@ -1,0 +1,22 @@
+---
+- name: Provision App Server
+  hosts: app_servers
+  become: true
+  serial: 1
+  gather_facts: "{{ not ansible_check_mode }}"
+  pre_tasks:
+    - name: Display provisioning info
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          Starting Provisioning
+          ==========================================
+          Target Host: {{ inventory_hostname }}
+          OS Family:   {{ ansible_os_family | default('N/A (check mode)') }}
+          ==========================================
+  roles:
+    - role: provision
+  post_tasks:
+    - name: Final message
+      ansible.builtin.debug:
+        msg: "Server provisioning completed."

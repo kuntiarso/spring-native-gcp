@@ -1,0 +1,40 @@
+# server config
+server_timezone: "Asia/Jakarta"
+server_packages_enabled: false
+server_base_packages:
+  - curl
+  - wget
+  - htop
+  - net-tools
+  - ufw
+  - vim
+  - unzip
+  - jq
+# nginx config
+nginx_state: present
+# firewall config
+firewall_enabled: true
+firewall_public_tcp_ports:
+  - "80"
+# gcp config
+gcp_iap_range: 35.235.240.0/20
+gcp_health_check_ranges:
+  - 35.191.0.0/16
+  - 130.211.0.0/22
+gcp_health_check_port: "80"
+# ssh config
+ssh_hardening_enabled: true
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_max_auth_tries: 3
+# journald config
+journald_max_retention: 7day
+journald_max_disk_size: 200M
+# swap config
+swap_enabled: true
+swap_path: /swapfile
+swap_size: 512M
+swap_swappiness: 10
+# system limit config
+limits_nofile_soft: 65535
+limits_nofile_hard: 65535

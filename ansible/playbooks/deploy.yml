@@ -1,0 +1,59 @@
+---
+- name: Deploy {{ app_name | default('application') }}
+  hosts: app_servers
+  become: true
+  gather_facts: "{{ not ansible_check_mode }}"
+  vars:
+    commit_sha: "{{ lookup('env', 'COMMIT_SHA') | default('', true) }}"
+    artifact_path: "{{ lookup('env', 'ARTIFACT_PATH') | default('', true) }}"
+  pre_tasks:
+    - name: Skip artifact validation in check mode
+      ansible.builtin.debug:
+        msg: "Check mode enabled — skipping artifact validation"
+      when: ansible_check_mode
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - commit_sha | length > 0
+          - artifact_path | length > 0
+        fail_msg: "Required variables commit_sha and artifact_path must be set"
+      when: not ansible_check_mode
+    - name: Check artifact exists locally
+      ansible.builtin.stat:
+        path: "{{ artifact_path }}"
+      delegate_to: localhost
+      become: false
+      register: artifact_file
+      when: not ansible_check_mode
+    - name: Fail if artifact not found
+      ansible.builtin.fail:
+        msg: "Artifact not found for {{ artifact_path }}"
+      when:
+        - not ansible_check_mode
+        - not artifact_file.stat.exists
+    - name: Display deployment info
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Starting Deployment
+          ========================================
+          Target Host:  {{ inventory_hostname }}
+          Commit SHA:   {{ commit_sha }}
+          Artifact:     {{ artifact_path }}
+          Environment:  {{ app_env | default('unknown') }}
+          ========================================
+  roles:
+    - role: deploy
+  post_tasks:
+    - name: Final deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Deployment Successful!
+          ========================================
+          Host:         {{ inventory_hostname }}
+          App:          {{ app_name }}
+          Commit:       {{ commit_sha }}
+          Service:      systemctl status {{ app_name }}
+          Logs:         journalctl -u {{ app_name }} -f
+          ========================================

@@ -1,0 +1,6 @@
+# app
+app_env: dev
+app_log_level: INFO
+app_java_opts: "-Xms128m -Xmx256m"
+# gcp
+gcp_project_id: project-788fce37-8e64-49f5-bcf

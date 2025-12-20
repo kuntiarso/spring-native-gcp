@@ -1,0 +1,145 @@
+name: Deploy Ansible
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Commit SHA of the build to deploy (check build workflow summary)'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+env:
+  APP_NAME: native-workshop
+  GCP_PROJECT_ID: project-788fce37-8e64-49f5-bcf
+  GCP_WORKLOAD_ID: projects/907266880390/locations/global/workloadIdentityPools/github-actions-pool/providers/github-native-workshop-repo
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Check build exists
+        id: build-check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: { workflow_runs } } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml',
+              head_sha: '${{ github.event.inputs.commit_sha }}',
+              status: 'success'
+            });
+            if (workflow_runs.length === 0) {
+              console.log(`No successful build found for SHA: ${{ github.event.inputs.commit_sha }}`);
+              core.setOutput('exists', 'false');
+              return;
+            }
+            const buildId = workflow_runs[0].id;
+            console.log(`Found workflow run ID: ${buildId}`);
+            core.setOutput('build_id', buildId);
+            core.setOutput('exists', 'true');
+      - name: Download artifact from build id
+        if: steps.build-check.outputs.exists == 'true'
+        id: artifact-download
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: ${{ env.APP_NAME }}-${{ github.event.inputs.commit_sha }}
+          path: ./artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: '${{ steps.build-check.outputs.build_id }}'
+      - name: Verify artifact exists
+        id: artifact-verify
+        run: |
+          if [ -f "./artifact/${{ env.APP_NAME }}" ]; then
+            echo "Artifact found: ./artifact/${{ env.APP_NAME }}"
+            ls -la ./artifact/
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Artifact not found!"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Skip deploy summary
+        if: steps.artifact-verify.outputs.exists != 'true'
+        run: |
+          echo "## Deployment Skipped! :warning:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** ${{ github.event.inputs.commit_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Reason:** Artifact not found or download failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Run the **Build Native Image** workflow first" >> $GITHUB_STEP_SUMMARY
+          echo "2. Use commit SHA: \`${{ github.event.inputs.commit_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          exit 1
+      - name: Authenticate to gcp
+        if: steps.artifact-verify.outputs.exists == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_ID }}
+      - name: Setup gcloud sdk
+        if: steps.artifact-verify.outputs.exists == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Verify gcp authentication
+        run: |
+          echo "Authenticated as:"
+          gcloud auth list --filter=status:ACTIVE --format="value(account)"
+      - name: Setup python
+        if: steps.artifact-verify.outputs.exists == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install ansible with python
+        if: steps.artifact-verify.outputs.exists == 'true'
+        run: |
+          pip install ansible
+          ansible --version
+      - name: Test connection via iap tunnel
+        if: steps.artifact-verify.outputs.exists == 'true'
+        run: |
+          cd ansible
+          ansible app_servers -i inventory/${{ github.event.inputs.environment }} -m ping
+      - name: Run ansible deploy playbook
+        if: steps.artifact-verify.outputs.exists == 'true'
+        env:
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          ARTIFACT_PATH: ${{ github.workspace }}/artifact/${{ env.APP_NAME }}
+        run: |
+          cd ansible
+          INVENTORY="inventory/${{ github.event.inputs.environment }}"
+          test -d "$INVENTORY" || (echo "Inventory $INVENTORY not found" && exit 1)
+          ansible-playbook playbooks/deploy.yml -i "$INVENTORY" --diff -v
+      - name: Deployment summary
+        if: steps.artifact-verify.outputs.exists == 'true'
+        run: |
+          echo "## Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | \`${{ github.event.inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit SHA** | \`${{ github.event.inputs.commit_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Run** | [#${{ steps.build-check.outputs.build_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.build-check.outputs.build_id }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Method** | Ansible + IAP Tunnel |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Useful Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Check service status" >> $GITHUB_STEP_SUMMARY
+          echo "sudo systemctl status ${{ env.APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "sudo journalctl -u ${{ env.APP_NAME }} -f" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Restart service" >> $GITHUB_STEP_SUMMARY
+          echo "sudo systemctl restart ${{ env.APP_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
