@@ -23,9 +23,7 @@ permissions:
   contents: read
   id-token: write
 env:
-  ANSIBLE_USER: github-actions_github_com
-  GCP_PROJECT_ID: project-788fce37-8e64-49f5-bcf
-  GCP_WORKLOAD_ID: projects/907266880390/locations/global/workloadIdentityPools/github-actions-pool/providers/github-native-workshop-repo
+  ANSIBLE_USER: ${{ vars.ANSIBLE_USER }}
 jobs:
   provision:
     runs-on: ubuntu-latest
@@ -37,14 +35,18 @@ jobs:
       - name: Authenticate to gcp
         uses: google-github-actions/auth@v3
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-          workload_identity_provider: ${{ env.GCP_WORKLOAD_ID }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_ID }}
       - name: Setup gcloud sdk
         uses: google-github-actions/setup-gcloud@v3
       - name: Verify gcp authentication
         run: |
           echo "Authenticated as:"
           gcloud auth list --filter=status:ACTIVE --format="value(account)"
+      - name: Bootstrap os login ssh key
+        run: |
+          mkdir -p ~/.ssh
+          gcloud compute ssh ${{ vars.GCP_INSTANCE }} --zone us-central1-c --tunnel-through-iap --command="whoami"
       - name: Setup python
         uses: actions/setup-python@v6
         with:
