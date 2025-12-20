@@ -1,0 +1,171 @@
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - app_env is defined
+      - app_log_level is defined
+    fail_msg: |
+      Missing required variables!
+      Please define in inventory:
+        - app_env
+        - app_log_level
+        - app_java_opts (optional)
+  when: not ansible_check_mode
+
+- name: Ensure app group exists
+  ansible.builtin.group:
+    name: "{{ app_group }}"
+    state: present
+
+- name: Ensure app user exists
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    group: "{{ app_group }}"
+    shell: /usr/sbin/nologin
+    create_home: false
+    system: true
+    state: present
+
+- name: Ensure app directory exists (no ownership)
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Set app directory ownership
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  when: not ansible_check_mode
+
+- name: Ensure backup directory exists (no ownership)
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    state: directory
+    mode: "0755"
+  when: backup_enabled
+
+- name: Set backup directory ownership
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+  when:
+    - backup_enabled
+    - not ansible_check_mode
+
+- name: Check if current binary exists
+  ansible.builtin.stat:
+    path: "{{ app_dir }}/{{ app_name }}"
+  register: current_binary
+
+- name: Get current timestamp
+  ansible.builtin.set_fact:
+    backup_timestamp: "{{ lookup('pipe', 'date +%s') }}"
+  when:
+    - backup_enabled
+    - current_binary.stat.exists
+
+- name: Backup current binary
+  ansible.builtin.copy:
+    src: "{{ app_dir }}/{{ app_name }}"
+    dest: "{{ backup_dir }}/{{ app_name }}.{{ backup_timestamp }}"
+    remote_src: true
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+  when:
+    - backup_enabled
+    - current_binary.stat.exists
+    - not ansible_check_mode
+
+- name: Clean old backups (keep last N)
+  ansible.builtin.shell: |
+    cd {{ backup_dir }}
+    ls -t {{ app_name }}.* 2>/dev/null | tail -n +{{ backup_max + 1 }} | xargs -r rm -f
+  args:
+    executable: /bin/bash
+  when:
+    - backup_enabled
+    - not ansible_check_mode
+
+- name: Check if service exists
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ app_name }}.service"
+  register: service_file
+
+- name: Stop app service before deployment
+  ansible.builtin.systemd:
+    name: "{{ app_name }}"
+    state: stopped
+  when:
+    - service_file.stat.exists
+    - not ansible_check_mode
+  failed_when: false
+
+- name: Deploy native binary
+  ansible.builtin.copy:
+    src: "{{ artifact_path }}"
+    dest: "{{ app_dir }}/{{ app_name }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+  notify: restart app
+  when: not ansible_check_mode
+
+- name: Deploy systemd service file
+  ansible.builtin.template:
+    src: app.service.j2
+    dest: "/etc/systemd/system/{{ app_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart app
+  check_mode: "{{ ansible_check_mode }}"
+
+- name: Start app service if newly installed
+  ansible.builtin.systemd:
+    name: "{{ app_name }}"
+    state: started
+    enabled: true
+  when:
+    - service_file.stat.exists is not defined
+      or not service_file.stat.exists
+    - not ansible_check_mode
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for app to be healthy
+  ansible.builtin.uri:
+    url: "{{ health_check_url }}"
+    method: GET
+    status_code: 200
+  register: health_result
+  until: health_result.status == 200
+  retries: "{{ health_check_retries }}"
+  delay: "{{ health_check_delay }}"
+  when:
+    - health_check_enabled
+    - not ansible_check_mode
+
+- name: Get service status
+  ansible.builtin.systemd:
+    name: "{{ app_name }}"
+  register: service_status
+
+- name: Display deployment info
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      Deployment Complete!
+      ========================================
+      App Name:    {{ app_name }}
+      Location:    {{ app_dir }}/{{ app_name }}
+      Service:     {{ app_name }}.service
+      Status:      {{ service_status.status.ActiveState }}
+      Environment: {{ app_env }}
+      Port:        {{ app_port }}
+      ========================================

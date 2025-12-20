@@ -1,0 +1,124 @@
+name: Provision Server
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to provision'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      confirm:
+        description: 'Type "provision" to confirm (safety check)'
+        required: true
+        type: string
+      skip_tags:
+        description: 'Tags to skip (comma-separated, e.g. "swap,nginx")'
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+  id-token: write
+env:
+  GCP_PROJECT_ID: project-788fce37-8e64-49f5-bcf
+  GCP_WORKLOAD_ID: projects/907266880390/locations/global/workloadIdentityPools/github-actions-pool/providers/github-native-workshop-repo
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'provision'
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Authenticate to gcp
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_ID }}
+      - name: Setup gcloud sdk
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Verify gcp authentication
+        run: |
+          echo "Authenticated as:"
+          gcloud auth list --filter=status:ACTIVE --format="value(account)"
+      - name: Setup python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install ansible with python
+        run: |
+          pip install ansible
+          ansible --version
+      - name: Test connection via iap tunnel
+        run: |
+          cd ansible
+          ansible app_servers -i inventory/${{ github.event.inputs.environment }} -m ping
+      - name: Run ansible provision playbook
+        run: |
+          cd ansible
+          INVENTORY="inventory/${{ github.event.inputs.environment }}"
+          test -d "$INVENTORY" || (echo "Inventory $INVENTORY not found" && exit 1)
+          SKIP_TAGS=""
+          if [ -n "${{ github.event.inputs.skip_tags }}" ]; then
+            SKIP_TAGS="--skip-tags ${{ github.event.inputs.skip_tags }}"
+          fi
+          ansible-playbook playbooks/provision.yml -i "$INVENTORY" $SKIP_TAGS --diff -v
+      - name: Provision summary
+        if: success()
+        run: |
+          echo "## Provisioning Completed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | \`${{ github.event.inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Skipped Tags** | \`${{ github.event.inputs.skip_tags || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What was configured:" >> $GITHUB_STEP_SUMMARY
+          echo "- Base packages installed" >> $GITHUB_STEP_SUMMARY
+          echo "- Nginx installed/verified" >> $GITHUB_STEP_SUMMARY
+          echo "- Firewall configured (ports 22, 80)" >> $GITHUB_STEP_SUMMARY
+          echo "- SSH hardened" >> $GITHUB_STEP_SUMMARY
+          echo "- Journald configured" >> $GITHUB_STEP_SUMMARY
+          echo "- Swap configured" >> $GITHUB_STEP_SUMMARY
+          echo "- System limits set" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Useful Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Check firewall status" >> $GITHUB_STEP_SUMMARY
+          echo "sudo ufw status verbose" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check nginx status" >> $GITHUB_STEP_SUMMARY
+          echo "sudo systemctl status nginx" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Check swap" >> $GITHUB_STEP_SUMMARY
+          echo "free -h" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+      - name: Provision failed summary
+        if: failure()
+        run: |
+          echo "## Provisioning failed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | \`${{ github.event.inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Troubleshooting" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check the logs above for error details" >> $GITHUB_STEP_SUMMARY
+          echo "2. Verify IAP tunnel permissions" >> $GITHUB_STEP_SUMMARY
+          echo "3. Check if VM is running" >> $GITHUB_STEP_SUMMARY
+
+  confirm-failed:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm != 'provision'
+    steps:
+      - name: Confirmation failed
+        run: |
+          echo "## Provisioning cancelled." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "You must type **provision** in the confirm field to run this workflow." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This is a safety check to prevent accidental server changes." >> $GITHUB_STEP_SUMMARY
+          exit 1

@@ -1,0 +1,16 @@
+# app properties
+app_dir: /app
+app_name: native-workshop
+app_port: 8080
+app_user: "ansi-deployer"
+app_group: "ansi-deployer"
+# deploy properties
+artifact_path: ""
+backup_enabled: true
+backup_dir: "{{ app_dir }}/backups"
+backup_max: 3
+# health properties
+health_check_enabled: true
+health_check_url: "http://localhost:{{ app_port }}/actuator/health"
+health_check_retries: 10
+health_check_delay: 3
