@@ -20,6 +20,7 @@ permissions:
   id-token: write
 env:
   APP_NAME: native-workshop
+  ANSIBLE_USER: github-actions_github_com
   GCP_PROJECT_ID: project-788fce37-8e64-49f5-bcf
   GCP_WORKLOAD_ID: projects/907266880390/locations/global/workloadIdentityPools/github-actions-pool/providers/github-native-workshop-repo
 jobs:
