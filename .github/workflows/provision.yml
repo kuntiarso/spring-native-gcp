@@ -43,10 +43,14 @@ jobs:
         run: |
           echo "Authenticated as:"
           gcloud auth list --filter=status:ACTIVE --format="value(account)"
-      - name: Bootstrap os login ssh key
+      - name: Generate ssh key for os login
         run: |
           mkdir -p ~/.ssh
-          gcloud compute ssh ${{ vars.GCP_INSTANCE }} --zone us-central1-c --tunnel-through-iap --command="whoami"
+          ssh-keygen -t rsa -b 3072 -f ~/.ssh/google_compute_engine -N ""
+          chmod 600 ~/.ssh/google_compute_engine
+      - name: Upload ssh key to os login
+        run: |
+          gcloud compute os-login ssh-keys add --key-file ~/.ssh/google_compute_engine.pub
       - name: Setup python
         uses: actions/setup-python@v6
         with:
